@@ -23,12 +23,12 @@ from picamera2.outputs import FileOutput
 PAGE = """\
 <html>
 <head>
-<title>Pi cam</title>
+<title>Pi Cam</title>
 </head>
 <body>
 <div style="display: flex; width: 98%">
-    <div style="width: 45%">
-        <img src="stream1.mjpg" width="100%"/>
+    <div style="width: 70%">
+        <img src="stream1.mjpg" width="90%"/>
     </div>
 </div>
 </body>
@@ -92,8 +92,8 @@ class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
     daemon_threads = True
 
 # Define the lower and upper bounds for the orange color
-LOWER = np.array([100, 150, 100])
-UPPER = np.array([130, 255, 255])
+LOWER = np.array([115, 150, 190])
+UPPER = np.array([125, 255, 255])
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 
@@ -158,7 +158,7 @@ class Processor:
             _, (x, y, w, h) = matches[-1]
 
             # outline the object
-            imgout = cv2.rectangle(iraw, (x, y), (x+w, y+h), (0, 255, 0), 5)
+            imgout = cv2.rectangle(iraw, (x, y), (x+w, y+h), (0, 255, 0), 2)
 
             # X position of ring center from camera center (right positive, left negative)
             ix = (x + w // 2) - CX
@@ -216,26 +216,28 @@ class Processor:
                 hmat = '' # '[' + ', '.join(f'{x:.0f}' for x in x.getHomography()) + ']'
                 margin = tag.getDecisionMargin()
                 print(f'\r{self.fps:3.0f} FPS: margin={margin:2.0f} @{c.x:3.0f},{c.y:3.0f} id={tid:2} {hmat}    ' % tags, end='')
-                imgout = cv2.circle(imgout, (x, y), 10, (40, 0, 255), 4)
 
-                H = tag.getHomographyMatrix()
+                if args.nodraw:
+                    cv2.circle(imgout, (x, y), 5, (40, 0, 255), -1)
 
-                # Define the corners of the tag (assuming a 2x2 tag for simplicity)
-                tc = np.array([[-1, -1, 1], [ 1, -1, 1], [ 1,  1, 1], [-1,  1, 1]])
+                    H = tag.getHomographyMatrix()
 
-                # Project the corners into the image plane
-                ic = (H @ tc.T).T
+                    # Define the corners of the tag (assuming a 2x2 tag for simplicity)
+                    tc = np.array([[-1, -1, 1], [ 1, -1, 1], [ 1,  1, 1], [-1,  1, 1]])
 
-                # Normalize the points
-                ic2 = ic[:, :2] / ic[:, 2][:, np.newaxis]
+                    # Project the corners into the image plane
+                    ic = (H @ tc.T).T
 
-                # Draw the rectangle
-                for i in range(4):
-                    pt1 = tuple(np.int32(ic2[i % 4]))
-                    pt2 = tuple(np.int32(ic2[(i + 1) % 4]))
-                    cv2.line(imgout, pt1, pt2, (255, 120, 120), 5)
+                    # Normalize the points
+                    ic2 = (ic[:, :2] / ic[:, 2][:, np.newaxis]).astype(np.int32)
 
-                imgout = cv2.putText(imgout, f'#{tag.getId()}', (x + 20, y - 20), FONT, 1.5, (128, 255, 128), 3, cv2.LINE_AA)
+                    # Draw the rectangle
+                    for i in range(4):
+                        pt1 = tuple(ic2[i % 4])
+                        pt2 = tuple(ic2[(i + 1) % 4])
+                        cv2.line(imgout, pt1, pt2, (210, 30, 150), 4)
+
+                    cv2.putText(imgout, f'{tag.getId()}', tuple(ic2[1] + [-4, 0]), FONT, 1.2, (128, 255, 128), 3, cv2.LINE_AA)
 
             # breakpoint()
 
@@ -330,12 +332,13 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('-d', '--debug', action='store_true')
+    parser.add_argument('--nodraw', action='store_false')
     parser.add_argument('-c', '--cam', type=int, default=0)
     parser.add_argument('--port', type=int, default=8000)
-    parser.add_argument('-r', '--res', default='640x480')
+    parser.add_argument('-r', '--res', default='1024x768')
     parser.add_argument('--dec', type=int, default=2)
     parser.add_argument('--threads', type=int, default=4)
-    parser.add_argument('--fps', type=float, default=50.0)
+    parser.add_argument('--fps', type=float, default=60.0)
     parser.add_argument('--time', type=float, default=10.0)
 
     args = parser.parse_args()
