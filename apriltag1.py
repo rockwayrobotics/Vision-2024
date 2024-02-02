@@ -23,17 +23,12 @@ from picamera2.outputs import FileOutput
 PAGE = """\
 <html>
 <head>
-<title>Pi5 dual cams</title>
+<title>Pi cam</title>
 </head>
 <body>
 <div style="display: flex; width: 98%">
     <div style="width: 45%">
-        <h1>Cam1</h1>
         <img src="stream1.mjpg" width="100%"/>
-    </div>
-    <div style="width: 45%">
-    <h1>Cam2</h1>
-    <img src="stream2.mjpg" width="100%" />
     </div>
 </div>
 </body>
@@ -87,28 +82,6 @@ class StreamingHandler(server.BaseHTTPRequestHandler):
                 logging.warning(
                     'Removed streaming client %s: %s',
                     self.client_address, str(e))
-        elif self.path == '/stream2.mjpg':
-            self.send_response(200)
-            self.send_header('Age', 0)
-            self.send_header('Cache-Control', 'no-cache, private')
-            self.send_header('Pragma', 'no-cache')
-            self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=FRAME')
-            self.end_headers()
-            try:
-                while True:
-                    with output2.condition:
-                        output2.condition.wait()
-                        frame = output2.frame
-                    self.wfile.write(b'--FRAME\r\n')
-                    self.send_header('Content-Type', 'image/jpeg')
-                    self.send_header('Content-Length', len(frame))
-                    self.end_headers()
-                    self.wfile.write(frame)
-                    self.wfile.write(b'\r\n')
-            except Exception as e:
-                logging.warning(
-                    'Removed streaming client %s: %s',
-                    self.client_address, str(e))
         else:
             self.send_error(404)
             self.end_headers()
@@ -118,14 +91,11 @@ class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
     allow_reuse_address = True
     daemon_threads = True
 
-SIZE = (640, 480)
-CX = SIZE[0] // 2
-CY = SIZE[1] // 2
-
 # Define the lower and upper bounds for the orange color
 LOWER = np.array([100, 150, 100])
 UPPER = np.array([130, 255, 255])
 
+FONT = cv2.FONT_HERSHEY_SIMPLEX
 
 class Processor:
     def __init__(self, det):
@@ -134,7 +104,6 @@ class Processor:
         self.missed = 0
         self.fps = 0
         self.found = False
-        self.yuv_height = SIZE[0] * 2 // 3
         self.det = det
 
 
@@ -151,22 +120,22 @@ class Processor:
         # Create a mask using the orange color range
         mask = cv2.inRange(frame, LOWER, UPPER)
 
-        circles = cv2.HoughCircles(mask, cv2.HOUGH_GRADIENT, dp=1, minDist=10,
-            param1=60, param2=20, minRadius=MIN_SIZE, maxRadius=SIZE[0])
+        # circles = cv2.HoughCircles(mask, cv2.HOUGH_GRADIENT, dp=1, minDist=10,
+        #     param1=60, param2=20, minRadius=MIN_SIZE, maxRadius=SIZE[0])
 
-        if circles is not None:
-            # print(circles)
-            circles = list(circles[0])
-            # circles.sort(key=lambda x: x[2])
-            ncircles = len(circles)
-            best = circles[0]
-            # print(f'{ncircles} {best}      ', end='\r')
-            cx, cy, cr = best
-            # ctext = f'{cx!r},{cy!r},{cr!r}'
-            ctext = f'{cx:.0f},{cy:.0f},{cr:.0f}'
-        else:
-            ncircles = 0
-            ctext = 'none'
+        # if circles is not None:
+        #     # print(circles)
+        #     circles = list(circles[0])
+        #     # circles.sort(key=lambda x: x[2])
+        #     ncircles = len(circles)
+        #     best = circles[0]
+        #     # print(f'{ncircles} {best}      ', end='\r')
+        #     cx, cy, cr = best
+        #     # ctext = f'{cx!r},{cy!r},{cr!r}'
+        #     ctext = f'{cx:.0f},{cy:.0f},{cr:.0f}'
+        # else:
+        #     ncircles = 0
+        #     ctext = 'none'
 
         # Find contours in the mask
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -201,19 +170,19 @@ class Processor:
         else:
             imgout = iraw
 
-        if ncircles > 0:
-            try:
-                imgout = cv2.circle(imgout, (int(cx), int(cy)), int(cr), (255, 0, 40), 15)
-            except Exception as ex:
-                # print(ex)
-                pass
+        # if ncircles > 0:
+        #     try:
+        #         imgout = cv2.circle(imgout, (int(cx), int(cy)), int(cr), (255, 0, 40), 15)
+        #     except Exception as ex:
+        #         # print(ex)
+        #         pass
 
         return imgout
 
 
     def do_apriltag(self, arr, imgout):
-        img = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
-        # img = arr[:self.yuv_height,:]
+        # img = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
+        img = arr[:SIZE[1],:]
         # img = arr
         tags = self.det.detect(img)
         self.count += 1
@@ -237,13 +206,38 @@ class Processor:
 
         if self.found:
             self.missed = 0
-            x = sorted(tags, key=lambda x: -x.getDecisionMargin())[0]
-            c = x.getCenter()
-            tid = x.getId()
-            # pose = field.getTagPose(tid)
-            hmat = '' # '[' + ', '.join(f'{x:.0f}' for x in x.getHomography()) + ']'
-            margin = x.getDecisionMargin()
-            print(f'\r{self.fps:3.0f} FPS: margin={margin:2.0f} @{c.x:3.0f},{c.y:3.0f} id={tid:2} {hmat}    ' % tags, end='')
+            for tag in sorted(tags, key=lambda x: x.getDecisionMargin()):
+                c = tag.getCenter()
+                x = int(c.x)
+                y = int(c.y)
+                tid = tag.getId()
+                # pose = field.getTagPose(tid)H = tag.homography
+
+                hmat = '' # '[' + ', '.join(f'{x:.0f}' for x in x.getHomography()) + ']'
+                margin = tag.getDecisionMargin()
+                print(f'\r{self.fps:3.0f} FPS: margin={margin:2.0f} @{c.x:3.0f},{c.y:3.0f} id={tid:2} {hmat}    ' % tags, end='')
+                imgout = cv2.circle(imgout, (x, y), 10, (40, 0, 255), 4)
+
+                H = tag.getHomographyMatrix()
+
+                # Define the corners of the tag (assuming a 2x2 tag for simplicity)
+                tc = np.array([[-1, -1, 1], [ 1, -1, 1], [ 1,  1, 1], [-1,  1, 1]])
+
+                # Project the corners into the image plane
+                ic = (H @ tc.T).T
+
+                # Normalize the points
+                ic2 = ic[:, :2] / ic[:, 2][:, np.newaxis]
+
+                # Draw the rectangle
+                for i in range(4):
+                    pt1 = tuple(np.int32(ic2[i % 4]))
+                    pt2 = tuple(np.int32(ic2[(i + 1) % 4]))
+                    cv2.line(imgout, pt1, pt2, (255, 120, 120), 5)
+
+                imgout = cv2.putText(imgout, f'#{tag.getId()}', (x + 20, y - 20), FONT, 1.5, (128, 255, 128), 3, cv2.LINE_AA)
+
+            # breakpoint()
 
         return imgout
 
@@ -262,7 +256,7 @@ class Processor:
             okay, buf = cv2.imencode(".jpg", out)
             if okay:
                 data = io.BytesIO(buf)
-                output2.write(data.getbuffer())
+                output1.write(data.getbuffer())
 
             now = time.monotonic()
             if now - base >= 2.5:
@@ -283,10 +277,10 @@ async def main():
         ),
         lores=dict(
             size=SIZE,
-            format='RGB888'
+            format='YUV420'
         ),
     )
-    # cfg['transform'] = libcamera.Transform(vflip=1)
+    cfg['transform'] = libcamera.Transform(hflip=1, vflip=1)
     # cam.set_controls(dict(FrameRate=120.0))
     print(cfg)
     cam.configure(cfg)
@@ -308,10 +302,11 @@ async def main():
 
     global output1
     output1 = StreamingOutput()
-    cam.start_recording(MJPEGEncoder(), FileOutput(output1))
+    # cam.start_recording(MJPEGEncoder(), FileOutput(output1))
+    cam.start()
 
-    global output2
-    output2 = StreamingOutput()
+    # global output2
+    # output2 = StreamingOutput()
     #cam2.start_recording(MJPEGEncoder(), FileOutput(output2))
     address = ('', 8000)
     server = StreamingServer(address, StreamingHandler)
@@ -335,9 +330,9 @@ if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('-d', '--debug', action='store_true')
-    parser.add_argument('--cam', type=int, default=0)
+    parser.add_argument('-c', '--cam', type=int, default=0)
     parser.add_argument('--port', type=int, default=8000)
-    parser.add_argument('--res', default='640x480')
+    parser.add_argument('-r', '--res', default='640x480')
     parser.add_argument('--dec', type=int, default=2)
     parser.add_argument('--threads', type=int, default=4)
     parser.add_argument('--fps', type=float, default=50.0)
@@ -346,6 +341,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
     SIZE = tuple(int(x) for x in args.res.split('x'))
     MIN_SIZE = int(SIZE[0] * 0.05)
+
+    CX = SIZE[0] // 2
+    CY = SIZE[1] // 2
+    CAL = np.array([660, 0, CX, 0, 660, CY, 0, 0, 1], np.float32).reshape((3, 3))
 
     try:
         asyncio.run(main())
