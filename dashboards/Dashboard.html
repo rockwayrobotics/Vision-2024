@@ -1,0 +1,72 @@
+<dashboard-tab
+    tab-name="TeleOperated"
+    slot="tab"
+    source-provider="NetworkTables"
+    selected=""
+><frc-boolean-box
+        source-provider="NetworkTables"
+        style="transform: translate(10.0529px, 21.6934px);"
+        source-key="/Vision/running"
+    ></frc-boolean-box><frc-line-chart
+        chart-title="Line Chart"
+        source-provider="NetworkTables"
+        style="transform: translate(17.9895px, 115.344px);"
+        source-key="/Vision/tag-x"
+    >
+        <frc-line-chart-legend source-provider="NetworkTables"></frc-line-chart-legend>
+        <frc-line-chart-axis
+            source-provider="NetworkTables"
+            min="0"
+            max="1000"
+        ></frc-line-chart-axis>
+        <frc-line-chart-axis
+            side="right"
+            source-provider="NetworkTables"
+        ></frc-line-chart-axis>
+        <frc-line-chart-data
+            source-provider="NetworkTables"
+            source-key="/Vision/tag-x"
+        ></frc-line-chart-data>
+        <frc-line-chart-data
+            source-provider="NetworkTables"
+            source-key="/Vision/tag-y"
+        ></frc-line-chart-data></frc-line-chart><vaadin-text-field
+        label="RPi serial"
+        has-label=""
+        source-provider="NetworkTables"
+        style="transform: translate(103.703px, 9.52381px);"
+        source-key="/Vision/serial"
+        clear-button-visible=""
+        has-value=""
+    ><input
+            slot="input"
+            type="text"
+            id="vaadin-text-field-153"
+            aria-labelledby="label-vaadin-text-field-504"
+            aria-describedby=""
+        ><label
+            slot="label"
+            id="label-vaadin-text-field-504"
+            for="vaadin-text-field-153"
+        >RPi serial</label>
+        <div
+            slot="error-message"
+            id="error-message-vaadin-text-field-421"
+            hidden=""
+        ></div>
+    </vaadin-text-field><frc-toggle-button
+        source-provider="NetworkTables"
+        style="transform: translate(317.461px, 18.5185px);"
+        source-key="/Vision/motor"
+        toggled=""
+        label="Motor"
+    ></frc-toggle-button><frc-boolean-box
+        source-provider="NetworkTables"
+        style="transform: translate(423.28px, 0px);"
+        source-key="/Vision/motor"
+        label="Motor?"
+    ></frc-boolean-box></dashboard-tab><dashboard-tab
+    slot="tab"
+    tab-name="Autonomous"
+    source-provider="NetworkTables"
+></dashboard-tab>
