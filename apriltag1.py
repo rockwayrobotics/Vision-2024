@@ -5,12 +5,20 @@ import io
 import logging
 import socketserver
 from http import server
+import json
+from pathlib import Path
+import re
 from threading import Condition
+import signal
 import sys
 import time
 import traceback
+import weakref
+
+from aiohttp import web, http
 
 import robotpy_apriltag as at
+import ntcore
 
 import cv2
 import numpy as np
@@ -20,79 +28,127 @@ from picamera2 import Picamera2
 from picamera2.encoders import MJPEGEncoder
 from picamera2.outputs import FileOutput
 
-PAGE = """\
-<html>
-<head>
-<title>Pi Cam</title>
-</head>
-<body>
-<div style="display: flex; width: 98%">
-    <div style="width: 70%">
-        <img src="stream1.mjpg" width="90%"/>
-    </div>
-</div>
-</body>
-</html>
-"""
+# middleware to turn off caching for things in the 'static' folder,
+# specifically those covered by the name='static' route, as opposed
+# to others that may be created to bypass that e.g. third-party packages.
+@web.middleware
+async def cache_control(request: web.Request, handler):
+    response: web.Response = await handler(request)
+    resource_name = request.match_info.route.name
+    if resource_name and resource_name.startswith('static'):
+        response.headers.setdefault('Cache-Control', 'no-cache')
+    return response
+
+app = web.Application(middlewares=[cache_control])
+
+routes = web.RouteTableDef()
+#
+routes.static('/static/js', Path(__file__).parent / 'static/js', show_index=True, name='js')
+routes.static('/static/css', Path(__file__).parent / 'static/css', show_index=True, name='css')
+routes.static('/src', Path(__file__).parent / 'static/frcweb/examples/app/src', show_index=True, name='src')
+routes.static('/static', Path(__file__).parent / 'static', show_index=True, name='static')
+
+@routes.get('/')
+async def index(request):
+    raise web.HTTPFound('/static/index.html')
 
 
-class StreamingOutput(io.BufferedIOBase):
-    def __init__(self):
-        self.frame = None
-        self.condition = Condition()
+#-----------------------------
 
-    def write(self, buf):
-        with self.condition:
-            self.frame = buf
-            self.condition.notify_all()
+class output:
+    running = False
+    ready = None
+    frame = None
+    count = 0
 
+@routes.get('/stream1.mjpeg')
+async def stream1(request):
+    response = web.StreamResponse(
+        status=200,
+        reason='OK',
+        headers={'Content-Type': 'multipart/x-mixed-replace; boundary=FRAME',
+            'Age': '0',
+            'Cache-Control': 'no-cache, private',
+            'Pragma': 'no-cache',
+            }
+        )
+    # breakpoint()
+    await response.prepare(request)
 
-class StreamingHandler(server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path == '/':
-            self.send_response(301)
-            self.send_header('Location', '/index.html')
-            self.end_headers()
-        elif self.path == '/index.html':
-            content = PAGE.encode('utf-8')
-            self.send_response(200)
-            self.send_header('Content-Type', 'text/html')
-            self.send_header('Content-Length', len(content))
-            self.end_headers()
-            self.wfile.write(content)
-        elif self.path == '/stream1.mjpg':
-            self.send_response(200)
-            self.send_header('Age', 0)
-            self.send_header('Cache-Control', 'no-cache, private')
-            self.send_header('Pragma', 'no-cache')
-            self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=FRAME')
-            self.end_headers()
-            try:
-                while True:
-                    with output1.condition:
-                        output1.condition.wait()
-                        frame = output1.frame
-                    self.wfile.write(b'--FRAME\r\n')
-                    self.send_header('Content-Type', 'image/jpeg')
-                    self.send_header('Content-Length', len(frame))
-                    self.end_headers()
-                    self.wfile.write(frame)
-                    self.wfile.write(b'\r\n')
-            except Exception as e:
-                logging.warning(
-                    'Removed streaming client %s: %s',
-                    self.client_address, str(e))
-        else:
-            self.send_error(404)
-            self.end_headers()
+    try:
+        while output.running:
+            await output.ready.wait()
+            output.ready.clear()
+            frame = output.frame
+            await response.write(b'--FRAME\r\n')
+            await response.write(b'Content-Type: image/jpeg\r\n')
+            await response.write(f'Content-Length: {len(frame)}\r\n\r\n'.encode('utf-8'))
+            await response.write(frame)
+            await response.write(b'\r\n')
+
+    except Exception as e:
+        pass
+        # logging.warning(
+        #     'Removed streaming client %s: %s',
+        #     self.client_address, str(e))
+    finally:
+        try:
+            await response.write_eof()
+        except Exception as ex:
+            pass
+        return response
 
 
-class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
-    allow_reuse_address = True
-    daemon_threads = True
+#-----------------------------
+
+websockets = web.AppKey('websockets', weakref.WeakSet)
+app[websockets] = weakref.WeakSet()
+
+@routes.get('/ws')
+async def websocket_handler(request):
+    print('ws request', request)
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+
+    request.app[websockets].add(ws)
+    try:
+        async for msg in ws:
+            if msg.type == web.WSMsgType.TEXT:
+                print('<--', msg.json())
+                # if msg.data == 'close':
+                #     await ws.close()
+                # else:
+                #     await ws.send_str(msg.data + '/answer')
+            elif msg.type == web.WSMsgType.ERROR:
+                print('ws connection closed with exception %s' %
+                      ws.exception())
+            elif msg.type == web.WSMsgType.BINARY:
+                print('<-- binary, %s bytes', len(msg.data))
+            else:
+                print('<==', msg)
+    finally:
+        request.app[websockets].discard(ws)
+
+    print('websocket connection closed')
+
+    return ws
+
+
+#-----------------------------
+
+async def on_shutdown(app):
+    print('on shutdown')
+    for ws in set(app[websockets]):
+        await ws.close(code=http.WSCloseCode.GOING_AWAY, message="Server shutdown")
+
+app.on_shutdown.append(on_shutdown)
+
+app.add_routes(routes)
+
+#-----------------------------
 
 # Define the lower and upper bounds for the orange color
-LOWER = np.array([115, 150, 190])
+LOWER = np.array([115, 140, 180])
 UPPER = np.array([125, 255, 255])
 
 FONT = cv2.FONT_HERSHEY_SIMPLEX
@@ -198,7 +254,8 @@ class Processor:
 
         if not self.found:
             self.missed += 1
-            print(f'\r{self.fps:3.0f} FPS: missed {self.missed}' + ' ' * 40, end='')
+            motor = 'ON ' if nt_motor.get() else 'OFF'
+            print(f'\r{motor} {self.fps:3.0f} FPS: missed {self.missed}' + ' ' * 40, end='')
             # if self.missed == 25:
             #     cv2.imwrite('fail.png', img)
             #     # breakpoint()
@@ -206,16 +263,20 @@ class Processor:
 
         if self.found:
             self.missed = 0
-            for tag in sorted(tags, key=lambda x: x.getDecisionMargin()):
+            for (i, tag) in enumerate(sorted(tags, key=lambda x: x.getDecisionMargin())):
                 c = tag.getCenter()
                 x = int(c.x)
                 y = int(c.y)
                 tid = tag.getId()
                 # pose = field.getTagPose(tid)H = tag.homography
+                if i == 0:
+                    nt_tag_x.set(x)
+                    nt_tag_y.set(y)
 
                 hmat = '' # '[' + ', '.join(f'{x:.0f}' for x in x.getHomography()) + ']'
                 margin = tag.getDecisionMargin()
-                print(f'\r{self.fps:3.0f} FPS: margin={margin:2.0f} @{c.x:3.0f},{c.y:3.0f} id={tid:2} {hmat}    ' % tags, end='')
+                motor = 'ON ' if nt_motor.get() else 'OFF'
+                print(f'\r{motor} {self.fps:3.0f} FPS: margin={margin:2.0f} @{c.x:3.0f},{c.y:3.0f} id={tid:2} {hmat}    ' % tags, end='')
 
                 if args.nodraw:
                     cv2.circle(imgout, (x, y), 5, (40, 0, 255), -1)
@@ -246,7 +307,8 @@ class Processor:
 
     async def run(self, cam):
         base = time.monotonic()
-        while True:
+        while RUNNING:
+            await asyncio.sleep(0.05)
             # runs every 33ms with camera module v3 at 640x480 or 1024x768
             t0 = time.monotonic()
             imain = cam.capture_array('main')
@@ -258,15 +320,18 @@ class Processor:
             okay, buf = cv2.imencode(".jpg", out)
             if okay:
                 data = io.BytesIO(buf)
-                output1.write(data.getbuffer())
+                output.frame = data.getbuffer()
+                output.ready.set()
 
             now = time.monotonic()
             if now - base >= 2.5:
                 base = now
                 print(f' t={now-t1:.3f}s t={now-t0:.3f}s')
 
+        print('exiting run')
 
-async def main():
+
+async def run_vision():
     cam = Picamera2(args.cam)
     print(cam.sensor_modes)
     cfg = cam.create_video_configuration(
@@ -302,30 +367,64 @@ async def main():
     # cfg.quadSigma = 0.8
     det.setConfig(cfg)
 
-    global output1
-    output1 = StreamingOutput()
+    output.ready = asyncio.Event()
+    output.running = True
+    # global output1
+    # output1 = StreamingOutput()
     # cam.start_recording(MJPEGEncoder(), FileOutput(output1))
     cam.start()
 
     # global output2
     # output2 = StreamingOutput()
     #cam2.start_recording(MJPEGEncoder(), FileOutput(output2))
-    address = ('', 8000)
-    server = StreamingServer(address, StreamingHandler)
-    sw = asyncio.to_thread(server.serve_forever)
+    # address = ('', 8000)
+    # server = StreamingServer(address, StreamingHandler)
+    # sw = asyncio.to_thread(server.serve_forever)
 
     try:
         p = Processor(det)
-        await asyncio.gather(sw, p.run(cam))
-    except KeyboardInterrupt:
-        pass
+        # await asyncio.gather(sw, p.run(cam))
+        await p.run(cam)
+    # except KeyboardInterrupt:
+    #     pass
     except Exception as ex:
         traceback.print_exc()
     finally:
         print('shutting down')
-        server.shutdown()
-        await asyncio.sleep(0.6)
+        # server.shutdown()
+        # await asyncio.sleep(0.6)
 
+
+#-----------------------------
+
+RUNNING = True
+
+def handle_sig(*_sig):
+    print('terminate!')
+    global RUNNING
+    RUNNING = False
+
+    output.running = False
+    output.ready.set()
+
+
+async def main():
+    loop = asyncio.get_running_loop()
+
+    for sig in [signal.SIGINT, signal.SIGTERM]:
+        loop.add_signal_handler(sig, handle_sig)
+        print('installed handler for', sig)
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '', 8000)
+    await site.start()
+    print('Server started at http://localhost:8000')
+
+    try:
+        await run_vision()
+    finally:
+        await runner.cleanup()
 
 
 if __name__ == '__main__':
@@ -340,6 +439,7 @@ if __name__ == '__main__':
     parser.add_argument('--threads', type=int, default=4)
     parser.add_argument('--fps', type=float, default=60.0)
     parser.add_argument('--time', type=float, default=10.0)
+    parser.add_argument('--team', type=int, default=8089)
 
     args = parser.parse_args()
     SIZE = tuple(int(x) for x in args.res.split('x'))
@@ -349,8 +449,32 @@ if __name__ == '__main__':
     CY = SIZE[1] // 2
     CAL = np.array([660, 0, CX, 0, 660, CY, 0, 0, 1], np.float32).reshape((3, 3))
 
+    # app.cleanup_ctx.append(run_main)
+
+    NT = ntcore.NetworkTableInstance.getDefault()
+    NT.setServerTeam(8089)
+    NT.startClient4('fire1')
+
+    vis_serial = NT.getStringTopic('/Vision/serial').publishEx('string', json.dumps(dict(persistent=True)))
+    try:
+        sn = re.search(r'^Serial\s*:\s*(.*)$', open('/proc/cpuinfo').read(), re.MULTILINE).group(1)
+    except:
+        sn = '?'
+    vis_serial.set(sn)
+
+    nt_running = NT.getBooleanTopic('/Vision/running').publish()
+    nt_running.set(True)
+    # breakpoint()
+    nt_tag_x = NT.getIntegerTopic('/Vision/tag-x').publish()
+    nt_tag_x.set(0)
+    nt_tag_y = NT.getIntegerTopic('/Vision/tag-y').publish()
+    nt_tag_y.set(0)
+    nt_motor = NT.getBooleanTopic('/Vision/motor').subscribe(False)
+
     try:
         asyncio.run(main())
+        # web.run_app(app)
     except KeyboardInterrupt:
         pass
-
+    finally:
+        nt_running.set(False)

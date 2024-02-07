@@ -1,0 +1,361 @@
+@import "const.less";
+
+body {
+    margin: 0.5rem;
+    font-family: sans-serif;
+    color: #d7ecfb;
+    background-color: #072b44;
+    --c-good: forestgreen;
+    --c-warn: gold;
+    --c-bad: firebrick;
+
+    line-height: 1.2;
+}
+
+.hidden { display: none; }
+
+.video {
+    margin: 2px;
+    /*border: 2px solid blue;*/
+    padding: 2px;
+    width: 50%;
+}
+
+.test {
+    color: blue;
+}
+
+#vue-root > header {
+    margin: 0.2rem;
+    border-bottom: 1px solid grey;
+    margin-bottom: 0.5rem;
+    padding: 0.2rem;
+    display: flex;
+    flex-flow: row nowrap;
+    justify-content: space-between;
+
+    .title {
+        font-size: 140%;
+        border: 10px;
+
+        display: flex;
+        flex-flow: row nowrap;
+        align-items: center;
+    }
+}
+
+/* Data panels each containing related items */
+div.data-section {
+    margin: 0.2rem;
+    flex: 1 0 max(15em, 66%); /* formatting is a mess: fix */
+    background-color: #062034;
+    padding: 0.4em;
+    /*border: 1px dashed grey;*/
+    border-bottom: 1px solid grey;
+
+    &:not(:first-of-type) {
+        margin-top: 0.5rem;
+    }
+
+    .warn {
+        background-color: var(--c-warn);
+    }
+    .error {
+        background-color: var(--c-bad);
+    }
+    .good {
+        background-color: var(--c-good);
+    }
+
+    /* top box in each panel */
+    header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    h1, h2 {
+        font-size: 1.5rem;
+        font-style: italic;
+        margin-right: 1em;
+        &::after {
+            content: ': ';
+        }
+    }
+
+    h2 {
+        font-size: 1.2rem;
+    }
+
+    div.hint {
+        margin: 0.5em;
+        padding: 0.3em;
+        font-size: 125%;
+        font-weight: bold;
+        text-align: center;
+        background-color: gray;
+        color: black;
+        &.warn {
+            background-color: var(--c-warn);
+        }
+        &.error {
+            background-color: var(--c-bad);
+        }
+        &.good {
+            background-color: var(--c-good);
+        }
+    }
+
+    div.controls {
+        align-items: right;
+        justify-content: space-between;
+        margin: 0.5em;
+        padding: 0.3em;
+        font-size: 125%;
+        font-weight: bold;
+        text-align: center;
+        background-color: gray;
+        color: black;
+        &.warn {
+            background-color: var(--c-warn);
+        }
+        &.error {
+            background-color: var(--c-bad);
+        }
+        &.good {
+            background-color: var(--c-good);
+        }
+    }
+
+    footer {
+        margin: 0.5rem;
+        padding: 0.5rem;
+        background-color: black;
+
+        h2+div {
+            margin-top: 0.5rem;
+        }
+    }
+
+    .twist {
+        width: 0.7em;
+        text-align: center;
+    }
+}
+
+div.data-field {
+    &:not(:first-of-type) {
+        margin-top: 0.5rem;
+    }
+    display: flex;
+    flex-flow: row nowrap;
+    align-items: center;
+
+    h3 {
+        flex: 0 1 7em;
+        margin-right: 1em;
+        font-style: italic;
+        color: green;
+        &::after {
+            content: ': ';
+        }
+    }
+
+    .value {
+        /*flex: 1;*/
+        /*flex-flow: column nowrap;*/
+        /*border: 1px solid white;*/
+        /*display: block;*/
+    }
+}
+
+
+.connected { background-color: black; }
+.updating { font-size: large; color: red; }
+
+.fwver {
+    &:not(.latest) {
+        color: var(--c-bad);
+    }
+}
+
+#buttons {
+    display: flex;
+    flex-flow: column nowrap;
+    margin-top: 1em;
+}
+button {
+    font-size: 1.2rem;
+    margin-top: 0.1rem;
+    padding-left: auto;
+    padding-right: auto;
+    height: 1.5em;
+    border-radius: 10px;
+
+    user-select: none;
+}
+
+/* horizontal and vertical layout tools */
+.hbox {
+    display: flex;
+    flex-flow: row nowrap;
+    align-items: center;
+}
+.vbox {
+    display: flex;
+    flex-flow: column nowrap;
+}
+.hbox > *, .vbox > * {
+    flex: none;
+}
+.hbox .push-right { margin-left:auto }
+.centre { margin-left:auto; margin-right:auto; }
+
+.warning { color: var(--c-warn); }
+.instructions { font-size: large; color: gray; margin-top: 1em; }
+.ghost { opacity: 0.3; }
+.unsupported { color: gray; filter: blur(1px); }
+img.help {
+    border: 1px solid red;
+    width: 100%;
+    max-width: 200px;
+}
+.widget {
+    display: inline;
+    font-size: 1.5rem;
+    box-sizing: border-box;
+    margin: auto 0.25em;
+    padding: 0.2em;
+
+    &:hover {
+        /*filter: brightness(1.5);*/
+        text-shadow: 0px 0px 0.5em white;
+    }
+}
+.help {
+    font-style: italic;
+    margin: 0.2em;
+    background-color: slategray;
+    padding: 0.2em;
+    color: black;
+
+    .help-list {
+        margin: 0.5em 1em;
+        white-space: pre;
+    }
+}
+
+/* tidbits: keep these at the bottom for easier reference */
+.disabled { opacity: 0.5; pointer-events: none; }
+/*.required { color: red; }*/
+
+.ttable {
+    margin-top: 0.5em;
+
+    display: table;
+    border-collapse: collapse;
+
+    .trow {
+        display: table-row;
+        &:first-child {
+            font-weight: bold;
+            text-align: center;
+        }
+    }
+
+    /* these are the cells */
+    .trow > div {
+        display: table-cell;
+        /*margin: 2px;*/
+        border: 1px solid grey;
+        padding: 5px 0.5em;
+
+        /* if you want the names highlighted */
+        /*&:first-child {
+            font-weight: bold;
+        }*/
+
+        &.centered {
+            text-align: center;
+        }
+
+        label.radio {
+            padding: 0.2em;
+            border: 1px dotted transparent;
+            border-radius: 10px;
+            &:hover {
+                /*background-color: #222222;*/
+                border: 1px solid white;
+            }
+
+            &:nth-child(1n+2) {
+                margin-left: 0.5em;
+            }
+        }
+
+        button {
+            margin-left: 0.5em;
+        }
+    }
+}
+
+.fft-area {
+    align-items: start;
+}
+
+#fft-graph {
+    margin: 5px;
+    border: 1px solid white;
+    padding: 2px;
+    background-color: white;
+    color: black;
+
+    /*width: 700px;
+    height: 350px;*/
+    .x.axis-grid {
+        color: #ddd;
+    }
+
+    .y.axis-grid {
+        color: #eee;
+    }
+}
+
+a {
+    text-decoration: underline;
+    color: inherit;
+
+    &:visited {
+        color: inherit;
+    }
+}
+
+.sliders {
+    > div {
+        /*border: 1px solid #955;*/
+        padding: 3px;
+        display: flex;
+        flex-direction: row;
+    }
+
+    label {
+        width: 2em;
+    }
+
+    label + span {
+        margin-left: 4em;
+    }
+}
+
+.logo-container {
+    width: 175px;
+    border-radius: 5px;
+    background-color: #ffffff30;
+    padding: 5px;
+
+    display: flex;
+    flex-direction: row nowrap;
+    align-items: center;
+}
+
+/* EOF */
