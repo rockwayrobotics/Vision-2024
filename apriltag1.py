@@ -45,7 +45,7 @@ routes = web.RouteTableDef()
 #
 routes.static('/static/js', Path(__file__).parent / 'static/js', show_index=True, name='js')
 routes.static('/static/css', Path(__file__).parent / 'static/css', show_index=True, name='css')
-routes.static('/src', Path(__file__).parent / 'static/frcweb/examples/app/src', show_index=True, name='src')
+# routes.static('/src', Path(__file__).parent / 'static/frcweb/examples/app/src', show_index=True, name='src')
 routes.static('/static', Path(__file__).parent / 'static', show_index=True, name='static')
 
 @routes.get('/')
