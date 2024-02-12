@@ -30,11 +30,15 @@ rmc-cam-view {
     color: gray;
 }
 #reload {
-    display: inline-block;
-    background-color: lightgray;
     margin: 2px;
-    border: 2px solid red;
-    padding: 5px;
+    background-color: red;
+    color: black;
+    border-radius: 0.5em;
+    padding: 0.2em;
+    font-size: 1.1rem;
+    i {
+        translate: 0 5px;   /* fix alignment */
+    }
 }
 `;
 
@@ -55,12 +59,9 @@ export class RmcApp extends LitElement {
             {num: 0, name: 'Cam-0'},
             {num: 1, name: 'GS-1'},
         ];
+        // this.verwarn = true;
 
         this.run(); // spawn task
-
-        // this.addEventListener('snapshot', (e) => {
-        //     console.log('1snapshot', e);
-        // });
     }
 
     async run() {
@@ -80,8 +81,8 @@ export class RmcApp extends LitElement {
         core.send('resend', e.target.count);
     }
 
-    onReload() {
-        window.location.reload(true);
+    onReload(flag) {
+        window.location.reload(flag);
     }
 
     //----------------
@@ -93,8 +94,8 @@ export class RmcApp extends LitElement {
         return html`
             <div class="container ${classMap(classes)}">
                 ${this.verwarn
-                    ? html`<div id="reload"
-                    >Updated. <button @click=${this.onReload}>Click to reload.</button></div>`
+                    ? html`<button id="reload" @click=${() => this.onReload(true)}
+                    >New version <i class="md-icon">refresh</i></button>`
                     : ''
                 }
                 <div class="meta">v${this.version}</div>
@@ -108,6 +109,7 @@ export class RmcApp extends LitElement {
                     ></rmc-cam-view>`
                 )}
             </div>
+            <button @click=${() => this.onReload(false)}>Test Reload</button>
         `;
     }
 }

@@ -156,7 +156,7 @@ class Client:
 
 
     def send(self, msg, **kwargs):
-        self.log.debug('not sending (yet): %r %r', msg, kwargs)
+        self.log.debug('sending: %r %r', msg, kwargs)
         msg = dict(_t=msg)
         msg.update(kwargs)
         self.qout.put_nowait(msg)
