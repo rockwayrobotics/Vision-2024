@@ -5,7 +5,9 @@ import io
 import logging
 import socketserver
 from http import server
+import itertools
 import json
+import os
 from pathlib import Path
 import re
 from threading import Condition
@@ -23,10 +25,20 @@ import ntcore
 import cv2
 import numpy as np
 
-import libcamera
-from picamera2 import Picamera2
-from picamera2.encoders import MJPEGEncoder
-from picamera2.outputs import FileOutput
+logging.basicConfig(level=logging.DEBUG)
+
+try:
+    import libcamera
+    from picamera2 import Picamera2
+    from picamera2.encoders import MJPEGEncoder
+    from picamera2.outputs import FileOutput
+    async def run_vision(): await _run_vision()
+except ImportError:
+    async def run_vision():
+        logging.getLogger('mock run_vision')
+        await core.shutdown()
+
+WEBDIR = Path(__file__).parent / 'web'
 
 # middleware to turn off caching for things in the 'static' folder,
 # specifically those covered by the name='static' route, as opposed
@@ -43,15 +55,141 @@ app = web.Application(middlewares=[cache_control])
 
 routes = web.RouteTableDef()
 #
-routes.static('/static/js', Path(__file__).parent / 'static/js', show_index=True, name='js')
-routes.static('/static/css', Path(__file__).parent / 'static/css', show_index=True, name='css')
-# routes.static('/src', Path(__file__).parent / 'static/frcweb/examples/app/src', show_index=True, name='src')
-routes.static('/static', Path(__file__).parent / 'static', show_index=True, name='static')
+
+#-----------------------------
+
+websockets = web.AppKey('websockets', weakref.WeakSet)
+app[websockets] = weakref.WeakSet()
+
+@routes.get('/ws')
+async def websocket_handler(request):
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+    request.app[websockets].add(ws)
+    logging.debug('websocket opened %s', request)
+
+    try:
+        client = Client(ws)
+        gClients.add(client)
+        await client.run()
+    except Exception:
+        logging.exception('client exception')
+    finally:
+        gClients.discard(client)
+        logging.debug('websocket closed %s', ws)
+
+    return ws
+
+
+class Client:
+    _id = itertools.count(0)
+
+    def __init__(self, ws):
+        self.ws = ws
+        self.id = next(Client._id)
+        self.log = logging.getLogger(f'c.{self.id}')
+        self.qout = asyncio.Queue()
+        self.send_task = None
+
+    async def run(self):
+        try:
+            await self.run_receiving()
+        finally:
+            if self.send_task:
+                self.send_task.cancel()
+                await self.send_task
+
+    async def run_receiving(self):
+        async for msg in self.ws:
+            if msg.type == web.WSMsgType.TEXT:
+                self.do_text(msg)
+            elif msg.type == web.WSMsgType.ERROR:
+                self.log.error('ws connection closed with exception %s',
+                      ws.exception())
+            elif msg.type == web.WSMsgType.BINARY:
+                self.log.debug('<-- binary, %s bytes', len(msg.data))
+            else:
+                self.log.warning('<== %r', msg)
+
+
+    async def run_sending(self):
+        while True:
+            msg = await self.qout.get()
+            try:
+                await self.ws.send_json(msg)
+            except Exception:
+                self.log.exception('ws send error')
+
+
+    def do_text(self, msg):
+        self.log.debug('<-- %s', msg)
+        msg = msg.json()
+        try:
+            handler = getattr(self, '_msg_' + msg['_t'])
+        except KeyError:
+            self.log.error('bad msg %r', msg)
+        except AttributeError:
+            self.log.error('no handler for %s', msg['_t'])
+        else:
+            try:
+                handler(msg)
+            except Exception:
+                self.log.exception('error handling %r', msg['_t'])
+
+
+    def _msg_auth(self, msg):
+        self.log.info('uuid %s', msg['uuid'])
+        if not self.send_task:
+            self.send_task = asyncio.create_task(self.run_sending())
+
+        self.send('meta', foo='bar', ver='0.1.1')
+
+        self.send_hash()
+
+
+    def send_hash(self):
+        # Calculate and send hash of timestamps of sorted list of all files
+        # in the web folder, to let the UI know if files have changed.
+        import hashlib, struct
+        data = b''.join(struct.pack('L', int(x.stat().st_mtime)) for x in sorted(WEBDIR.glob('**/*')))
+        self.send('hash', data=hashlib.md5(data).hexdigest())
+
+
+    def send(self, msg, **kwargs):
+        self.log.debug('not sending (yet): %r %r', msg, kwargs)
+        msg = dict(_t=msg)
+        msg.update(kwargs)
+        self.qout.put_nowait(msg)
+
+
+    def close(self):
+        self.ws.close()
+
+
+gClients = set()
+
+def send_all(*args, **kwargs):
+    for c in gClients:
+        c.send(*args, **kwargs)
+
+
+def close_all():
+    for c in gClients:
+        c.close()
+
+
+#-----------------------------
+# The order is particular... for some reason the /ws has to come first,
+# then the /, and then the static routes.  I've tried variations but
+# so far this is the only one that works.  Need some digging to explain it.
 
 @routes.get('/')
 async def index(request):
-    raise web.HTTPFound('/static/index.html')
+    return web.FileResponse('web/index.html')
+    # raise web.HTTPFound('/web/index.html')
 
+routes.static('/', WEBDIR, show_index=True)
+routes.static('/lib', WEBDIR / 'lib', show_index=True, name='static')
 
 #-----------------------------
 
@@ -94,44 +232,9 @@ async def stream1(request):
     finally:
         try:
             await response.write_eof()
-        except Exception as ex:
+        except Exception:
             pass
         return response
-
-
-#-----------------------------
-
-websockets = web.AppKey('websockets', weakref.WeakSet)
-app[websockets] = weakref.WeakSet()
-
-@routes.get('/ws')
-async def websocket_handler(request):
-    print('ws request', request)
-    ws = web.WebSocketResponse()
-    await ws.prepare(request)
-
-    request.app[websockets].add(ws)
-    try:
-        async for msg in ws:
-            if msg.type == web.WSMsgType.TEXT:
-                print('<--', msg.json())
-                # if msg.data == 'close':
-                #     await ws.close()
-                # else:
-                #     await ws.send_str(msg.data + '/answer')
-            elif msg.type == web.WSMsgType.ERROR:
-                print('ws connection closed with exception %s' %
-                      ws.exception())
-            elif msg.type == web.WSMsgType.BINARY:
-                print('<-- binary, %s bytes', len(msg.data))
-            else:
-                print('<==', msg)
-    finally:
-        request.app[websockets].discard(ws)
-
-    print('websocket connection closed')
-
-    return ws
 
 
 #-----------------------------
@@ -307,7 +410,7 @@ class Processor:
 
     async def run(self, cam):
         base = time.monotonic()
-        while RUNNING:
+        while core.running():
             await asyncio.sleep(0.05)
             # runs every 33ms with camera module v3 at 640x480 or 1024x768
             t0 = time.monotonic()
@@ -331,7 +434,7 @@ class Processor:
         print('exiting run')
 
 
-async def run_vision():
+async def _run_vision():
     cam = Picamera2(args.cam)
     print(cam.sensor_modes)
     cfg = cam.create_video_configuration(
@@ -387,7 +490,7 @@ async def run_vision():
         await p.run(cam)
     # except KeyboardInterrupt:
     #     pass
-    except Exception as ex:
+    except Exception:
         traceback.print_exc()
     finally:
         print('shutting down')
@@ -397,34 +500,59 @@ async def run_vision():
 
 #-----------------------------
 
-RUNNING = True
+class Core:
+    @property
+    def running(self):
+        not self._shutdown.is_set()
 
-def handle_sig(*_sig):
-    print('terminate!')
-    global RUNNING
-    RUNNING = False
+    def shutdown(self):
+        return self._shutdown.wait()
 
-    output.running = False
-    output.ready.set()
+    async def shut_down(self):
+        try:
+            self._shutdown.set()
+            close_all()
+            await self.runner.cleanup()
+        except Exception:
+            logging.exception('shutdown')
+        finally:
+            tasks = asyncio.all_tasks()
+            await asyncio.sleep(0.1)
+            if len(tasks) > 1:
+                logging.debug('tasks (%s): %r', len(tasks), tasks)
+
+    def handle_sig(self, *_sig):
+        print('terminate!')
+
+        output.running = False
+        output.ready.set()
+
+        asyncio.create_task(self.shut_down())
 
 
-async def main():
-    loop = asyncio.get_running_loop()
+    async def _run(self):
+        self.loop = asyncio.get_running_loop()
+        self._shutdown = asyncio.Event()
 
-    for sig in [signal.SIGINT, signal.SIGTERM]:
-        loop.add_signal_handler(sig, handle_sig)
-        print('installed handler for', sig)
+        output.ready = asyncio.Event()
+        for sig in [signal.SIGINT, signal.SIGTERM]:
+            self.loop.add_signal_handler(sig, self.handle_sig)
+            print('installed handler for', sig)
 
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, '', 8000)
-    await site.start()
-    print('Server started at http://localhost:8000')
+        self.runner = web.AppRunner(app)
+        await self.runner.setup()
+        site = web.TCPSite(self.runner, '', 8000)
+        await site.start()
+        print('Server started at http://localhost:8000')
 
-    try:
-        await run_vision()
-    finally:
-        await runner.cleanup()
+        try:
+            await run_vision()
+        finally:
+            await self.runner.cleanup()
+
+
+    def run(self):
+        asyncio.run(self._run())
 
 
 if __name__ == '__main__':
@@ -471,8 +599,9 @@ if __name__ == '__main__':
     nt_tag_y.set(0)
     nt_motor = NT.getBooleanTopic('/Vision/motor').subscribe(False)
 
+    core = Core()
     try:
-        asyncio.run(main())
+        core.run()
         # web.run_app(app)
     except KeyboardInterrupt:
         pass

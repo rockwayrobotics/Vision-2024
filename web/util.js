@@ -1,5 +1,7 @@
 'use strict';
 
+// Logging enhancement.  Prints the time (with milliseconds)
+// and thereby also ensures browsers don't hide "duplicate" log messages.
 class Logger {
     constructor(orig) {
         this.con = {
@@ -28,19 +30,13 @@ class Logger {
     error(...args) { this._log('error', ...args) }
 }
 
+// Comment out this line to remove temporarily.
 window.console = new Logger(console);
 
 
-function sleep(ms, silent) {
-    return new Promise(resolve => {
-        function res() {
-            if (!silent)
-                console.debug(`sleep(${ms}) done`);
-            resolve();
-        }
-
-        setTimeout(res, ms);
-    });
+// Async sleep for specified milliseconds.
+export function sleep(ms) {
+    return new Promise(res => { setTimeout(res, ms) });
 }
 
 
@@ -60,7 +56,7 @@ async function wait_for(promise, ms) {
     ]);
 }
 
-function get_promise() {
+export function get_promise() {
     let funcs;
     let p = new Promise((resolve, reject) => {
         funcs = {resolve, reject};
@@ -81,7 +77,7 @@ function fmtTime(...fields) {
 
 // Utility routine to make ids. By default does xxxxxx-xxxx-xx
 // even though a real UUID is longer.
-function make_uuid(parts) {
+export function make_uuid(parts) {
     var pad = '000000000000';
     var uuid = [];
     (parts || [3, 2, 1]).forEach(function(len) {

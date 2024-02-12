@@ -1,6 +1,6 @@
 'use strict';
 
-var Connector;
+export var Connector;
 
 {
     class Timer {
@@ -272,7 +272,7 @@ var Connector;
                 }
                 else {
                     try {
-                        handler(msg);
+                        handler.call(this.owner, msg);
                     }
                     catch (error) {
                         console.error(`${name} failed:`, error);
