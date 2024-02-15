@@ -45,11 +45,12 @@ export class RmcCamView extends LitElement {
     static styles = [theme, local];
 
     static properties = {
-        name: {},
-        num: {},
-        enabled: {},
+        name: {type: String},
+        num: {type: Number},
+        enabled: {type: Boolean},
         count: {state: true},
         image: {state: true},
+        data: {attribute: false},
     };
 
     #ready;
@@ -61,6 +62,7 @@ export class RmcCamView extends LitElement {
         this.num = 1;
         this.enabled = true;
         this.count = 0;
+        this.data = {fps: 0};
         this.image = new Promise(res => {
             this.#ready = res;
         });
@@ -115,6 +117,7 @@ export class RmcCamView extends LitElement {
                     .checked=${this.enabled}
                     @change=${this._enableChanged}
                 />
+                <span class="fps">${this.data.fps} FPS</span>
                 <div class="frame" @click=${this.snapshot}>
                     ${until(this.image, html`<img
                         src="img/no-cam.svg" width="100%" height="100%">`)}

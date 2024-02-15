@@ -40,26 +40,76 @@ rmc-cam-view {
         translate: 0 5px;   /* fix alignment */
     }
 }
+
+#robot {
+    display: block;
+    max-width: 40em;
+    border: 3px solid blue;
+}
+
+#dist1 {
+    display: block;
+    font-size: 400%;
+    color: brown;
+    width: 20em;
+
+    b {
+        min-width: 10em;
+    }
+
+    .val {
+        display: inline-block;
+        min-width: 4em;
+        text-align: right;
+    }
+}
+
+#beam1 {
+    display: block;
+
+    b {
+        min-width: 10em;
+    }
+
+    div {
+        width: 100px;
+        height: 100px;
+        border-radius: 1em;
+
+        &:not(.active) {
+            border: 1px solid black;
+            background-color: red
+        }
+        &.active {
+            background-color: green;
+        }
+    }
+}
 `;
 
 export class RmcApp extends LitElement {
     static styles = [theme, local];
 
     static properties = {
-        cams: {},
-        version: {},
-        connected: {},
-        verwarn: {},
+        version: {type: String},
+        connected: {type: Boolean},
+        verwarn: {type: Boolean},
+        cams: {state: true},
+        robot: {state: true},
     };
 
     constructor() {
         super();
 
         this.cams = [
-            {num: 0, name: 'Cam-0'},
-            {num: 1, name: 'GS-1'},
+            {num: 0, name: 'Cam-0', fps: 0},
+            {num: 1, name: 'GS-1', fps: 0},
         ];
-        // this.verwarn = true;
+
+        this.robot = {
+            dist1: 0,
+            beam1: false,
+        };
 
         this.run(); // spawn task
     }
@@ -104,12 +154,17 @@ export class RmcApp extends LitElement {
                     html`<rmc-cam-view
                         num="${item.num}"
                         name="${item.name}"
+                        .data=${{fps: item.fps}}
                         @enabled=${this.camEnabled}
                         @snapshot=${this.camSnapshot}
                     ></rmc-cam-view>`
                 )}
             </div>
             <button @click=${() => this.onReload(false)}>Test Reload</button>
+            <div id="robot">Robot:
+                <div id="dist1">Dist1:<span class="val">${this.robot.dist1}</span></div>
+                <div id="beam1"><b>Beam1:</b><div class="${this.robot.beam1 ? 'val active' : 'val'}"></div></div>
+            </div>
         `;
     }
 }

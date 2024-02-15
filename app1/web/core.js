@@ -104,6 +104,23 @@ export class Core {
         this.#first_hash = false;
     }
 
+    _msg_fps(msg) {
+        let fps = msg.n / msg.t;
+        this.app.cams[msg.cam].fps = Math.round(fps, 1);
+        this.app.requestUpdate('cams');
+        // console.log(`cam ${msg.cam} ${Math.round(fps, 1)} FPS`);
+    }
+
+    _msg_dist1(msg) {
+        this.app.robot.dist1 = msg.data;
+        this.app.requestUpdate('robot');
+    }
+
+    _msg_beam1(msg) {
+        this.app.robot.beam1 = msg.data;
+        this.app.requestUpdate('robot');
+    }
+
     set_ver(ver) {
         console.log('version', ver, this.app);
         this.app.version = ver;
